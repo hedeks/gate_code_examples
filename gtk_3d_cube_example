@@ -1,0 +1,138 @@
+#include <gtk/gtk.h>
+#include <gdk/gdkx.h>
+#include <GL/gl.h>
+#include <GL/glx.h>
+#include <math.h>
+
+typedef struct {
+    float rot_x, rot_y;
+    int last_x, last_y;
+    gboolean dragging;
+} CubeData;
+
+static Display *dpy;
+static GLXContext gl_context;
+static CubeData cube_data = {0.0f, 0.0f, 0, 0, FALSE};
+
+static void draw_cube() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glLoadIdentity();
+    glTranslatef(0.0f, 0.0f, -5.0f);
+    glRotatef(cube_data.rot_x, 1.0f, 0.0f, 0.0f);
+    glRotatef(cube_data.rot_y, 0.0f, 1.0f, 0.0f);
+
+    glBegin(GL_QUADS);
+    // Передняя грань
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glVertex3f(-1.0f, -1.0f,  1.0f);
+    glVertex3f( 1.0f, -1.0f,  1.0f);
+    glVertex3f( 1.0f,  1.0f,  1.0f);
+    glVertex3f(-1.0f,  1.0f,  1.0f);
+    // Задняя грань
+    glColor3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(-1.0f,  1.0f, -1.0f);
+    glVertex3f( 1.0f,  1.0f, -1.0f);
+    glVertex3f( 1.0f, -1.0f, -1.0f);
+    // Верхняя грань
+    glColor3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(-1.0f,  1.0f, -1.0f);
+    glVertex3f(-1.0f,  1.0f,  1.0f);
+    glVertex3f( 1.0f,  1.0f,  1.0f);
+    glVertex3f( 1.0f,  1.0f, -1.0f);
+    // Нижняя грань
+    glColor3f(1.0f, 1.0f, 0.0f);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f( 1.0f, -1.0f, -1.0f);
+    glVertex3f( 1.0f, -1.0f,  1.0f);
+    glVertex3f(-1.0f, -1.0f,  1.0f);
+    // Правая грань
+    glColor3f(1.0f, 0.0f, 1.0f);
+    glVertex3f( 1.0f, -1.0f, -1.0f);
+    glVertex3f( 1.0f,  1.0f, -1.0f);
+    glVertex3f( 1.0f,  1.0f,  1.0f);
+    glVertex3f( 1.0f, -1.0f,  1.0f);
+    // Левая грань
+    glColor3f(0.0f, 1.0f, 1.0f);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(-1.0f, -1.0f,  1.0f);
+    glVertex3f(-1.0f,  1.0f,  1.0f);
+    glVertex3f(-1.0f,  1.0f, -1.0f);
+    glEnd();
+}
+
+static gboolean configure_event(GtkWidget *widget, GdkEventConfigure *event, gpointer data) {
+    dpy = GDK_WINDOW_XDISPLAY(gtk_widget_get_window(widget));
+    gl_context = glXCreateContext(dpy, glXChooseVisual(dpy, DefaultScreen(dpy), (int[]){GLX_RGBA, GLX_DEPTH_SIZE, 16, GLX_DOUBLEBUFFER, None}), NULL, True);
+    glXMakeCurrent(dpy, GDK_WINDOW_XID(gtk_widget_get_window(widget)), gl_context);
+
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glViewport(0, 0, widget->allocation.width, widget->allocation.height);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    float aspect = (float)widget->allocation.width / widget->allocation.height;
+    glFrustum(-aspect, aspect, -1.0, 1.0, 2.0, 100.0);
+    glMatrixMode(GL_MODELVIEW);
+    return TRUE;
+}
+
+static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event, gpointer data) {
+    glXMakeCurrent(dpy, GDK_WINDOW_XID(gtk_widget_get_window(widget)), gl_context);
+    draw_cube();
+    glXSwapBuffers(dpy, GDK_WINDOW_XID(gtk_widget_get_window(widget)));
+    return TRUE;
+}
+
+static gboolean button_press_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
+    if (event->button == 1) {
+        cube_data.dragging = TRUE;
+        cube_data.last_x = event->x;
+        cube_data.last_y = event->y;
+    }
+    return TRUE;
+}
+
+static gboolean button_release_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
+    if (event->button == 1) {
+        cube_data.dragging = FALSE;
+    }
+    return TRUE;
+}
+
+static gboolean motion_notify_event(GtkWidget *widget, GdkEventMotion *event, gpointer data) {
+    if (cube_data.dragging) {
+        int dx = event->x - cube_data.last_x;
+        int dy = event->y - cube_data.last_y;
+        cube_data.rot_y += dx * 0.5f;
+        cube_data.rot_x += dy * 0.5f;
+        cube_data.last_x = event->x;
+        cube_data.last_y = event->y;
+        gtk_widget_queue_draw(widget);
+    }
+    return TRUE;
+}
+
+int main(int argc, char *argv[]) {
+    gtk_init(&argc, &argv);
+
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "3D Cube");
+    gtk_window_set_default_size(GTK_WINDOW(window), 800, 600);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+
+    GtkWidget *drawing_area = gtk_drawing_area_new();
+    gtk_container_add(GTK_CONTAINER(window), drawing_area);
+    gtk_widget_set_double_buffered(drawing_area, FALSE);
+    gtk_widget_set_events(drawing_area, GDK_EXPOSURE_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK);
+
+    g_signal_connect(drawing_area, "configure-event", G_CALLBACK(configure_event), NULL);
+    g_signal_connect(drawing_area, "expose-event", G_CALLBACK(expose_event), NULL);
+    g_signal_connect(drawing_area, "button-press-event", G_CALLBACK(button_press_event), NULL);
+    g_signal_connect(drawing_area, "button-release-event", G_CALLBACK(button_release_event), NULL);
+    g_signal_connect(drawing_area, "motion-notify-event", G_CALLBACK(motion_notify_event), NULL);
+
+    gtk_widget_show_all(window);
+    gtk_main();
+    return 0;
+}
