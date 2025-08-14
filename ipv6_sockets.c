@@ -452,9 +452,9 @@ void* receive_messages(void *sock_ptr) {
                 inet_ntop(AF_INET6, &ip6hdr->fields.dst_addr, dst_ip, sizeof(dst_ip));
                 
                 printf("\n=== Получен IPv6 пакет ===\n");
-                printf("От: %s\n", src_ip);
-                printf("Кому: %s\n", dst_ip);
-                printf("Размер данных: %u\n", ntohs(ip6hdr->fields.payload_len));
+                printf("Source: %s\n", src_ip);
+                printf("Destination: %s\n", dst_ip);
+                printf("Payload length: %u\n", ntohs(ip6hdr->fields.payload_len));
                 
                 // Обработка опций назначения
                 if (ip6hdr->fields.next_header == 60 && 
@@ -462,15 +462,15 @@ void* receive_messages(void *sock_ptr) {
                     
                     struct dest_options *dest_opt = (struct dest_options *)(buffer + sizeof(struct ipv6_header));
                     
-                    printf("Тип опции: 0x%02X\n", dest_opt->opt_type);
-                    printf("RAM адрес: 0x%016lX\n", ntohll(dest_opt->ram_address));
+                    printf("Option type: 0x%02X\n", dest_opt->opt_type);
+                    printf("LOCN: 0x%016lX\n", ntohll(dest_opt->ram_address));
                     
                     // Вывод данных
                     char *payload = buffer + sizeof(struct ipv6_header) + sizeof(struct dest_options);
                     size_t payload_size = recv_bytes - sizeof(struct ipv6_header) - sizeof(struct dest_options);
                     
                     if (payload_size > 0) {
-                        printf("Сообщение: %.*s\n", (int)payload_size, payload);
+                        printf("Payload: %.*s\n", (int)payload_size, payload);
                     }
                 }
                 printf("> ");
