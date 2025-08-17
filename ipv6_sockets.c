@@ -81,44 +81,55 @@ uint64_t ntohll(uint64_t value);
 void setup_server_socket(int *server_fd) {
     struct sockaddr_in6 server_addr;
     
-    // Создание IPv6 TCP сокета
+    // socket: Создает конечную точку для связи и возвращает файловый дескриптор.
+    // AF_INET6: Семейство адресов для IPv6.
+    // SOCK_STREAM: Тип сокета для потоковой передачи данных (TCP).
+    // 0: Протокол по умолчанию для данного типа сокета (TCP).
     if ((*server_fd = socket(AF_INET6, SOCK_STREAM, 0)) < 0) {
         perror("Ошибка создания IPv6 сокета");
         exit(EXIT_FAILURE);
     }
     
-    // Настройка параметров сокета
+    // setsockopt: Устанавливает опции для сокета.
+    // SOL_SOCKET: Уровень сокета, на котором будет установлена опция.
+    // SO_REUSEADDR: Позволяет повторно использовать локальный адрес, что полезно для быстрого перезапуска сервера.
     int opt = 1;
     if (setsockopt(*server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
         perror("Ошибка SO_REUSEADDR");
     }
     
-    // Только IPv6 (без IPv4 совместимости)
+    // IPV6_V6ONLY: Опция для сокета IPv6, которая определяет, будет ли сокет принимать только IPv6-соединения
+    // или также и IPv4-соединения (в режиме совместимости). 1 - только IPv6.
     int v6only = 1;
     if (setsockopt(*server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only))) {
         perror("Ошибка IPV6_V6ONLY");
     }
     
-    // Настройка hop limit
+    // IPV6_UNICAST_HOPS: Устанавливает максимальное количество переходов (hop limit) для исходящих unicast-пакетов.
     int hop_limit = 64;
     if (setsockopt(*server_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &hop_limit, sizeof(hop_limit))) {
         perror("Ошибка IPV6_UNICAST_HOPS");
     }
     
-    // Конфигурация адреса сервера
+    // memset: Заполняет блок памяти указанным значением (в данном случае нулями).
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin6_family = AF_INET6;
+    // htons (host to network short): Преобразует 16-битное число из порядка байтов хоста в сетевой порядок байтов.
     server_addr.sin6_port = htons(PORT);
-    server_addr.sin6_addr = in6addr_any;  // Все IPv6 интерфейсы
+    // in6addr_any: Специальный IPv6-адрес (::), который означает, что сервер будет принимать подключения на всех доступных сетевых интерфейсах.
+    server_addr.sin6_addr = in6addr_any;
     
-    // Привязка сокета
+    // bind: Привязывает сокет к указанному адресу и порту.
+    // (struct sockaddr*)&server_addr: Приведение типа от конкретной структуры адреса IPv6 (sockaddr_in6) 
+    // к обобщенной структуре адреса (sockaddr), как того требует функция bind.
     if (bind(*server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("Ошибка привязки IPv6 сокета");
         close(*server_fd);
         exit(EXIT_FAILURE);
     }
     
-    // Начало прослушивания
+    // listen: Переводит сокет в режим прослушивания входящих подключений.
+    // MAX_CLIENTS: Максимальная длина очереди ожидающих подключений.
     if (listen(*server_fd, MAX_CLIENTS) < 0) {
         perror("Ошибка прослушивания");
         close(*server_fd);
@@ -135,6 +146,10 @@ void accept_connections(int server_fd) {
     socklen_t addr_len = sizeof(client_addr);
     
     while (server_active) {
+        // accept: Извлекает первое соединение из очереди ожидающих соединений, создает новый сокет для этого соединения
+        // и возвращает его файловый дескриптор. Блокирует выполнение до появления нового соединения.
+        // (struct sockaddr*)&client_addr: Приведение типа для передачи указателя на структуру, 
+        // в которую будет записана информация об адресе подключившегося клиента.
         int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
         
         if (client_fd < 0) {
@@ -142,6 +157,7 @@ void accept_connections(int server_fd) {
             continue;
         }
         
+        // pthread_mutex_lock: Блокирует мьютекс для защиты разделяемых данных (списка клиентов) от одновременного доступа из разных потоков.
         pthread_mutex_lock(&clients_mutex);
         
         if (active_clients >= MAX_CLIENTS) {
@@ -172,7 +188,11 @@ void accept_connections(int server_fd) {
         clients[slot].addr = client_addr;
         active_clients++;
         
-        // Запуск обработчика клиента
+        // pthread_create: Создает новый поток для обработки подключенного клиента.
+        // &clients[slot].thread_id: Указатель для хранения идентификатора нового потока.
+        // NULL: Атрибуты потока по умолчанию.
+        // handle_client: Функция, которую будет выполнять новый поток.
+        // &clients[slot]: Аргумент, передаваемый в функцию потока.
         if (pthread_create(&clients[slot].thread_id, NULL, handle_client, &clients[slot])) {
             perror("Ошибка создания потока IPv6 клиента");
             close(client_fd);
@@ -180,6 +200,7 @@ void accept_connections(int server_fd) {
             active_clients--;
         }
         
+        // pthread_mutex_unlock: Разблокирует мьютекс после завершения работы с разделяемыми данными.
         pthread_mutex_unlock(&clients_mutex);
     }
 }
@@ -188,6 +209,7 @@ void accept_connections(int server_fd) {
 void print_ipv6_header(const struct ipv6_header *hdr) {
     char src_ip[INET6_ADDRSTRLEN], dst_ip[INET6_ADDRSTRLEN];
     
+    // inet_ntop (network to presentation): Преобразует числовой IPv6-адрес из бинарного формата в текстовую строку.
     inet_ntop(AF_INET6, &hdr->fields.src_addr, src_ip, sizeof(src_ip));
     inet_ntop(AF_INET6, &hdr->fields.dst_addr, dst_ip, sizeof(dst_ip));
     
@@ -195,6 +217,7 @@ void print_ipv6_header(const struct ipv6_header *hdr) {
     printf("Version: %u\n", hdr->fields.version);
     printf("Traffic class: %u\n", hdr->fields.traffic_class);
     printf("Flow label: %u\n", hdr->fields.flow_label);
+    // ntohs (network to host short): Преобразует 16-битное число из сетевого порядка байтов в порядок байтов хоста.
     printf("Payload length: %u\n", ntohs(hdr->fields.payload_len));
     printf("Next header: %u\n", hdr->fields.next_header);
     printf("Hop limit: %u\n", hdr->fields.hop_limit);
@@ -209,11 +232,14 @@ void print_dest_options(const struct dest_options *opts) {
     printf("Extension length: %u\n", opts->hdr_ext_len);
     printf("Option type: 0x%02X\n", opts->opt_type);
     printf("Option length: %u\n", opts->opt_len);
+    // ntohll (network to host long long): Пользовательская функция для преобразования 64-битного числа из сетевого порядка в хостовый.
     printf("LOCN: 0x%016lX\n", ntohll(opts->ram_address));
 }
 
 // Обработчик клиента
 void* handle_client(void *client_data) {
+    // (client_t *)client_data: Приведение типа аргумента. Потоковая функция принимает указатель общего вида (void*),
+    // который здесь приводится обратно к исходному типу (указателю на client_t) для доступа к данным клиента.
     client_t *client = (client_t *)client_data;
     int sockfd = client->sockfd;
     char client_ip[INET6_ADDRSTRLEN];
@@ -223,7 +249,14 @@ void* handle_client(void *client_data) {
     printf("IPv6 клиент подключен: %s\n", client_ip);
     
     while (server_active) {
+        // recv: Получает данные из сокета. Блокирует выполнение до получения данных.
+        // Возвращает количество полученных байт, 0 при закрытии соединения клиентом, -1 при ошибке.
         ssize_t recv_bytes = recv(sockfd, buffer, BUFFER_SIZE, 0);
+
+        if (recv_bytes > 0) {
+            buffer[recv_bytes] = '\0';
+            printf("\n[СЕРВЕР] Получен сырой пакет (%ld байт):\n---\n%s\n---\n", recv_bytes, buffer);
+        }
         
         if (recv_bytes <= 0) {
             if (recv_bytes < 0) perror("Ошибка чтения IPv6");
@@ -232,6 +265,9 @@ void* handle_client(void *client_data) {
         
         // Проверка на IPv6 пакет
         if (recv_bytes >= sizeof(struct ipv6_header)) {
+            // (struct ipv6_header *)buffer: Приведение типа. Указатель на начало буфера (char*) преобразуется
+            // в указатель на структуру ipv6_header. Это позволяет интерпретировать
+            // начальные байты полученных данных как заголовок IPv6 и обращаться к его полям.
             struct ipv6_header *ip6hdr = (struct ipv6_header *)buffer;
             
             if (ip6hdr->fields.version == 6) {
@@ -241,6 +277,9 @@ void* handle_client(void *client_data) {
                 if (ip6hdr->fields.next_header == 60 && 
                     recv_bytes >= sizeof(struct ipv6_header) + sizeof(struct dest_options)) {
                     
+                    // (struct dest_options *)(buffer + sizeof(struct ipv6_header)): Приведение типа со смещением. 
+                    // Указатель смещается на размер заголовка IPv6, чтобы указывать на начало следующего
+                    // заголовка (в данном случае, опций назначения), и приводится к соответствующему типу.
                     struct dest_options *dest_opt = (struct dest_options *)(buffer + sizeof(struct ipv6_header));
                     print_dest_options(dest_opt);
                     
@@ -255,14 +294,11 @@ void* handle_client(void *client_data) {
             }
         }
         
-        // Эхо-ответ
-        if (send(sockfd, buffer, recv_bytes, 0) < 0) {
-            perror("Ошибка отправки IPv6");
-            break;
-        }
+        // Эхо-ответ был удален, сервер не отправляет ответ.
     }
     
     printf("IPv6 клиент отключен: %s\n", client_ip);
+    // close: Закрывает файловый дескриптор сокета, освобождая системные ресурсы.
     close(sockfd);
     
     pthread_mutex_lock(&clients_mutex);
@@ -286,6 +322,8 @@ void cleanup_resources(int server_fd) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].sockfd != -1) {
             close(clients[i].sockfd);
+            // pthread_join: Ожидает завершения указанного потока.
+            // Это гарантирует, что все потоки клиентов завершат свою работу корректно перед остановкой сервера.
             pthread_join(clients[i].thread_id, NULL);
         }
     }
@@ -310,12 +348,15 @@ void start_server() {
 
 // ===================== КЛИЕНТСКАЯ ЧАСТЬ =====================
 
-// Преобразование 64-битных значений
+// Преобразование 64-битных значений из хостового в сетевой порядок байт
 uint64_t htonll(uint64_t value) {
-    return ((uint64_t)htonl(value & 0xFFFFFFFF) << 32) | htonl(value >> 32);
+    // htonl (host to network long): Преобразует 32-битное число из порядка байтов хоста в сетевой.
+    return ((uint64_t) htonl(value & 0xFFFFFFFF) << 32) | htonl(value >> 32);
 }
 
+// Преобразование 64-битных значений из сетевого в хостовый порядок байт
 uint64_t ntohll(uint64_t value) {
+    // ntohl (network to host long): Преобразует 32-битное число из сетевого порядка байтов в хостовый.
     return ((uint64_t)ntohl(value & 0xFFFFFFFF) << 32) | ntohl(value >> 32);
 }
 
@@ -326,29 +367,28 @@ void connect_to_ipv6_server(const char *ipv6_addr, int *sockfd) {
     char *zone_ptr;
     unsigned int zone_id = 0;
     
-    // Копируем адрес для обработки
+    // strncpy: Копирует строку, чтобы безопасно работать с ней, не изменяя исходный аргумент.
     strncpy(addr_str, ipv6_addr, sizeof(addr_str) - 1);
     addr_str[sizeof(addr_str) - 1] = '\0';
     
-    // Проверяем наличие идентификатора зоны (%)
+    // strchr: Ищет первое вхождение символа '%' в строке, который отделяет IPv6-адрес от идентификатора зоны (имени интерфейса).
     if ((zone_ptr = strchr(addr_str, '%'))) {
-        *zone_ptr = '\0';  // Отделяем адрес от идентификатора зоны
-        zone_ptr++;        // Переходим к имени интерфейса
+        *zone_ptr = '\0';  // Заменяет '%' на null-терминатор, чтобы отделить адрес.
+        zone_ptr++;        // Указатель теперь указывает на имя интерфейса.
         
-        // Получаем индекс интерфейса
+        // if_nametoindex: Преобразует имя сетевого интерфейса (например, "eth0") в его системный индекс.
+        // Этот индекс необходим для указания, через какой интерфейс отправлять пакеты с link-local адресами.
         if ((zone_id = if_nametoindex(zone_ptr)) == 0) {
             fprintf(stderr, "Ошибка: интерфейс '%s' не найден. Используйте команду 'ip link' для просмотра доступных интерфейсов\n", zone_ptr);
             exit(EXIT_FAILURE);
         }
     }
     
-    // Создание IPv6 сокета
     if ((*sockfd = socket(AF_INET6, SOCK_STREAM, 0)) < 0) {
         perror("Ошибка создания IPv6 сокета");
         exit(EXIT_FAILURE);
     }
     
-    // Настройка параметров IPv6
     int hop_limit = 64;
     if (setsockopt(*sockfd, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &hop_limit, sizeof(hop_limit))) {
         perror("Ошибка настройки Hop Limit");
@@ -359,13 +399,12 @@ void connect_to_ipv6_server(const char *ipv6_addr, int *sockfd) {
         perror("Ошибка отключения IPv4");
     }
     
-    // Настройка адреса сервера
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin6_family = AF_INET6;
     server_addr.sin6_port = htons(PORT);
-    server_addr.sin6_scope_id = zone_id;  // Установка ID зоны
+    server_addr.sin6_scope_id = zone_id;  // Установка ID зоны (индекса интерфейса) для link-local адресов.
     
-    // Преобразование IPv6 адреса
+    // inet_pton (presentation to network): Преобразует текстовую строку с IPv6-адресом в бинарный формат.
     if (inet_pton(AF_INET6, addr_str, &server_addr.sin6_addr) <= 0) {
         if (errno == 0) {
             fprintf(stderr, "Ошибка: '%s' не является валидным IPv6 адресом\n", addr_str);
@@ -379,6 +418,8 @@ void connect_to_ipv6_server(const char *ipv6_addr, int *sockfd) {
     printf("Подключение к IPv6 серверу [%s%%%s]:%d...\n", 
            addr_str, zone_id ? zone_ptr : "<none>", PORT);
     
+    // connect: Устанавливает соединение с сервером по указанному адресу.
+    // (struct sockaddr*)&server_addr: Приведение типа к обобщенной структуре адреса, как требует функция connect.
     if (connect(*sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("Ошибка подключения IPv6");
         close(*sockfd);
@@ -393,12 +434,13 @@ void send_ipv6_packet(int sockfd, const char *message) {
     struct ipv6_header ip6hdr;
     struct dest_options dest_opt;
     const char *payload = message;
+    // strlen: Вычисляет длину строки сообщения.
     size_t payload_size = strlen(payload);
     
-    // Заполнение IPv6 заголовка
     memset(&ip6hdr, 0, sizeof(ip6hdr));
     ip6hdr.fields.version = 6;
     ip6hdr.fields.traffic_class = 0;
+    // htonl (host to network long): Преобразует 32-битное число из порядка байтов хоста в сетевой.
     ip6hdr.fields.flow_label = htonl(12345) >> 12;
     ip6hdr.fields.payload_len = htons(sizeof(dest_opt) + payload_size);
     ip6hdr.fields.next_header = 60;  // Destination Options
@@ -407,6 +449,8 @@ void send_ipv6_packet(int sockfd, const char *message) {
     struct sockaddr_in6 my_addr, peer_addr;
     socklen_t addr_len = sizeof(struct sockaddr_in6);
 
+    // getsockname: Получает локальный адрес, к которому привязан сокет.
+    // (struct sockaddr*)&my_addr: Приведение типа для передачи в функцию.
     if (getsockname(sockfd, (struct sockaddr*)&my_addr, &addr_len) == 0) {
         ip6hdr.fields.src_addr = my_addr.sin6_addr;
     } else {
@@ -414,6 +458,8 @@ void send_ipv6_packet(int sockfd, const char *message) {
         inet_pton(AF_INET6, "::1", &ip6hdr.fields.src_addr);
     }
 
+    // getpeername: Получает адрес удаленного узла, к которому подключен сокет.
+    // (struct sockaddr*)&peer_addr: Приведение типа для передачи в функцию.
     if (getpeername(sockfd, (struct sockaddr*)&peer_addr, &addr_len) == 0) {
         ip6hdr.fields.dst_addr = peer_addr.sin6_addr;
     } else {
@@ -421,7 +467,6 @@ void send_ipv6_packet(int sockfd, const char *message) {
         inet_pton(AF_INET6, "::1", &ip6hdr.fields.dst_addr);
     }
     
-    // Заполнение опций
     memset(&dest_opt, 0, sizeof(dest_opt));
     dest_opt.next_header = 6;   // TCP
     dest_opt.hdr_ext_len = 1;   // Размер заголовка (1 блок по 8 байт)
@@ -431,11 +476,11 @@ void send_ipv6_packet(int sockfd, const char *message) {
     
     // Формирование пакета
     char packet[sizeof(ip6hdr) + sizeof(dest_opt) + payload_size];
+    // memcpy: Копирует данные из одной области памяти в другую.
     memcpy(packet, &ip6hdr, sizeof(ip6hdr));
     memcpy(packet + sizeof(ip6hdr), &dest_opt, sizeof(dest_opt));
     memcpy(packet + sizeof(ip6hdr) + sizeof(dest_opt), payload, payload_size);
     
-    // Отправка пакета
     if (send(sockfd, packet, sizeof(packet), 0) < 0) {
         perror("Ошибка отправки IPv6 пакета");
     }
@@ -443,21 +488,31 @@ void send_ipv6_packet(int sockfd, const char *message) {
 
 // Прием сообщений
 void* receive_messages(void *sock_ptr) {
+    // *((int *)sock_ptr): Разыменование указателя. Аргумент sock_ptr имеет тип void*.
+    // Сначала он приводится к типу (int *), а затем оператор (*) получает значение (файловый дескриптор), 
+    // на которое этот указатель ссылается.
     int sockfd = *((int *)sock_ptr);
     char buffer[BUFFER_SIZE];
     
     while (1) {
         ssize_t recv_bytes = recv(sockfd, buffer, BUFFER_SIZE, 0);
+
+        if (recv_bytes > 0) {
+            buffer[recv_bytes] = '\0';
+            printf("\n[КЛИЕНТ] Получен сырой пакет (%ld байт):\n---\n%s\n---\n", recv_bytes, buffer);
+        }
         
         if (recv_bytes <= 0) {
             if (recv_bytes < 0) perror("Ошибка чтения IPv6");
             printf("Сервер IPv6 отключен\n");
             close(sockfd);
+            // exit: Немедленно завершает программу.
             exit(0);
         }
         
         // Обработка IPv6 пакета
         if (recv_bytes >= sizeof(struct ipv6_header)) {
+            // (struct ipv6_header *)buffer: Приведение типа для интерпретации данных из буфера как заголовка IPv6.
             struct ipv6_header *ip6hdr = (struct ipv6_header *)buffer;
             
             if (ip6hdr->fields.version == 6) {
@@ -475,6 +530,8 @@ void* receive_messages(void *sock_ptr) {
                 if (ip6hdr->fields.next_header == 60 && 
                     recv_bytes >= sizeof(struct ipv6_header) + sizeof(struct dest_options)) {
                     
+                    // (struct dest_options *): Приведение типа указателя, смещенного на размер заголовка IPv6,
+                    // для доступа к данным опций назначения.
                     struct dest_options *dest_opt = (struct dest_options *)(buffer + sizeof(struct ipv6_header));
                     
                     printf("Option type: 0x%02X\n", dest_opt->opt_type);
@@ -489,6 +546,8 @@ void* receive_messages(void *sock_ptr) {
                     }
                 }
                 printf("> ");
+                // fflush: Принудительно сбрасывает буфер вывода. stdout - стандартный поток вывода.
+                // Это гарантирует, что приглашение "> " будет немедленно отображено в консоли.
                 fflush(stdout);
                 continue;
             }
@@ -519,12 +578,17 @@ void start_client(const char *ipv6_addr) {
         printf("> ");
         fflush(stdout);
         
+        // fgets: Читает строку из указанного потока (stdin - стандартный ввод) и сохраняет ее в буфер.
+        // Читает до символа новой строки или до заполнения буфера.
         if (fgets(message, BUFFER_SIZE, stdin) == NULL) {
             break;
         }
         
+        // strcspn: Находит позицию первого символа из строки "\n" в строке message.
+        // Используется для удаления символа новой строки, который добавляет fgets.
         message[strcspn(message, "\n")] = '\0';
         
+        // strcmp: Сравнивает две строки. Возвращает 0, если строки равны.
         if (strcmp(message, "exit") == 0) {
             break;
         }
@@ -533,6 +597,7 @@ void start_client(const char *ipv6_addr) {
     }
     
     close(sockfd);
+    // pthread_cancel: Отправляет запрос на отмену указанному потоку.
     pthread_cancel(recv_thread);
     printf("Клиент IPv6 отключен\n");
 }
@@ -541,10 +606,15 @@ void start_client(const char *ipv6_addr) {
 int main() {
     int mode;
     printf("Выберите режим:\n1. Сервер IPv6\n2. Клиент IPv6\n> ");
+    // scanf: Читает форматированный ввод из стандартного потока ввода.
+    // "%d": Ожидает целое десятичное число.
+    // Возвращает количество успешно считанных элементов.
     if (scanf("%d", &mode) != 1) {
         printf("Ошибка ввода\n");
         return 1;
     }
+    // getchar: Считывает один символ из стандартного потока ввода.
+    // Используется здесь для "поглощения" символа новой строки, оставшегося в буфере после scanf.
     getchar();
     
     if (mode == 1) {
