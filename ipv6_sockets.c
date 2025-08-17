@@ -3,6 +3,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <ifaddrs.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
@@ -686,6 +689,44 @@ void start_client(const char *ipv6_addr)
 }
 
 // ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
+void get_link_local_ipv6() {
+    struct ifaddrs *ifaddr, *ifa;
+    int family, s;
+    char host[NI_MAXHOST];
+
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Link-local IPv6 addresses:\n");
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        family = ifa->ifa_addr->sa_family;
+
+        if (family == AF_INET6) {  // Проверяем IPv6
+            s = getnameinfo(ifa->ifa_addr,
+                           sizeof(struct sockaddr_in6),
+                           host, NI_MAXHOST,
+                           NULL, 0, NI_NUMERICHOST);
+            if (s != 0) {
+                printf("getnameinfo() failed: %s\n", gai_strerror(s));
+                continue;
+            }
+
+            // Выводим ТОЛЬКО link-local (fe80::...)
+            if (strstr(host, "fe80:") != NULL) {
+                printf("Interface: %s\tAddress: %s\n", ifa->ifa_name, host);
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+}
+
 int main()
 {
     int mode;
@@ -704,6 +745,7 @@ int main()
 
     if (mode == 1)
     {
+        get_link_local_ipv6();
         start_server();
     }
     else if (mode == 2)
