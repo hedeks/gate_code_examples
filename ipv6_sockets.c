@@ -403,8 +403,23 @@ void send_ipv6_packet(int sockfd, const char *message) {
     ip6hdr.fields.payload_len = htons(sizeof(dest_opt) + payload_size);
     ip6hdr.fields.next_header = 60;  // Destination Options
     ip6hdr.fields.hop_limit = 64;
-    inet_pton(AF_INET6, "::1", &ip6hdr.fields.src_addr);
-    inet_pton(AF_INET6, "::1", &ip6hdr.fields.dst_addr);
+
+    struct sockaddr_in6 my_addr, peer_addr;
+    socklen_t addr_len = sizeof(struct sockaddr_in6);
+
+    if (getsockname(sockfd, (struct sockaddr*)&my_addr, &addr_len) == 0) {
+        ip6hdr.fields.src_addr = my_addr.sin6_addr;
+    } else {
+        perror("Ошибка getsockname");
+        inet_pton(AF_INET6, "::1", &ip6hdr.fields.src_addr);
+    }
+
+    if (getpeername(sockfd, (struct sockaddr*)&peer_addr, &addr_len) == 0) {
+        ip6hdr.fields.dst_addr = peer_addr.sin6_addr;
+    } else {
+        perror("Ошибка getpeername");
+        inet_pton(AF_INET6, "::1", &ip6hdr.fields.dst_addr);
+    }
     
     // Заполнение опций
     memset(&dest_opt, 0, sizeof(dest_opt));
