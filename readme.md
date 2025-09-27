@@ -13,4 +13,4 @@
 1. /Ipv6_Sockets - principles of network interaction between nodes on ipv6 sockets_api.
 2. /Simple_NDDI - simple network instance`s program with limited functionality.
 3. /Simple_GATE - limited control program for basic realization of nddi`s lifecycle.
-4. /Simple_GARH - limited basic /garh functionality.  
+4. /Simple_GAAR - limited basic /gaar functionality.  
