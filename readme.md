@@ -6,7 +6,7 @@
 
 */gate* -  OS fork with extensions for control of life cycle of /nddi`s.
 
-*/garh* - HMI for control and acquisition /nddi`s. 
+*/gaar* - HMI for control and acquisition /nddi`s. 
 
 ## Demos with principles
 
