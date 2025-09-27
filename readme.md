@@ -1,4 +1,4 @@
-# Repository for simple demos with principles of GATE - **Gat**ivus **E**dge and GARH - *G*ativus **Arch**itect
+# Repository for simple demos with principles of GATE - **Gat**ivus **E**dge and GAAR - *G*ativus **Arch**itect
 
 ## Components of Gativus project
 
